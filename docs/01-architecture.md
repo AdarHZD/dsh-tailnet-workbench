@@ -1,19 +1,19 @@
 # 架构
 
-> 一句话：Mac 是唯一的 DSH 本体；Tailscale 把设备连成一个私有网；一个只读工作台把「设备时延」和「DSH 状态」放在一页，并从同一页进入 DSH。
+> 一句话：主执行端（macOS 或 Windows）是唯一的 DSH 本体；Tailscale 把设备连成一个私有网；一个只读工作台把「设备时延」和「DSH 状态」放在一页，并从同一页进入 DSH。
 
 ## 组件
 
 | 组件 | 位置 | 作用 | 托管 |
 |---|---|---|---|
-| DSH 桌面版 | Mac | 唯一的大脑，所有会话在这里 | 建议 launchd 常驻（见 [07-keep-running.md](07-keep-running.md)） |
-| 工作台 | Mac | 聚合状态、下发 DSH cookie | launchd `local.dsh-workbench.workbench` |
-| Caddy | Mac | `:8711 → 127.0.0.1:<DSH 端口>`，固定 Host/Origin | 由守护脚本拉起 |
-| `dsh-proxy.sh` | Mac | 每 10 秒跟随 DSH 动态端口 | launchd `local.dsh-workbench.proxy` |
+| DSH 桌面版 | 主执行端 | 唯一的大脑，所有会话在这里 | macOS launchd / Windows 计划任务（见 07 / 07b） |
+| 工作台 | 主执行端 | 聚合状态、下发 DSH cookie | macOS launchd `local.dsh-workbench.workbench`；Windows 计划任务 `DSH Workbench` |
+| Caddy | 主执行端 | `:8711 → 127.0.0.1:<DSH 端口>`，固定 Host/Origin | 由守护脚本拉起 |
+| `dsh-proxy.py` | 主执行端 | 每 10 秒跟随 DSH 动态端口 | macOS launchd `local.dsh-workbench.proxy`；Windows 计划任务 `DSH Proxy` |
 | Tailscale | 全部设备 | 组网、打洞、直连/中继 | 系统服务 |
 | 接入设备 | iPad / 手机 / 笔记本 | 浏览器打开工作台 | — |
 
-工作台、反代、DSH 都运行在 Mac 的**图形登录会话**里：Mac 睡眠、注销、关机，或 DSH 退出，整条链路就会消失。常开与常驻的做法见 [07-keep-running.md](07-keep-running.md)。
+工作台、反代、DSH 都运行在主执行端的**图形登录会话**里（macOS 是 Aqua，Windows 是交互式用户会话）：主执行端睡眠、注销、关机，或 DSH 退出，整条链路就会消失。常开与常驻：macOS 见 [07-keep-running.md](07-keep-running.md)，Windows 见 [07b-windows-keep-running.md](07b-windows-keep-running.md)。
 
 ## 数据流
 
@@ -23,12 +23,12 @@
 浏览器 ──GET /api/status──▶ workbench.py
                               ├─ tailscale status --json   → 设备名 / 系统 / tailnet IP / 在线
                               ├─ tailscale ping <ip>       → 往返时延 + Direct/Relay
-                              ├─ lsof + Host 探测          → DSH 实际监听端口（不返回给前端）
-                              ├─ ~/.dsh/sessions           → 会话总数 / 最近活动
+                              ├─ lsof / PowerShell + Host 探测 → DSH 实际监听端口（不返回给前端）
+                              ├─ ~/.dsh/sessions（Windows: %USERPROFILE%\.dsh） → 会话总数 / 最近活动
                               └─ ~/.dsh/storages/workspace.json → 工作区数
 ```
 
-- `tailscale status` 与 `tailscale ping` 都可能被 macOS 的 GUI 权限拦截，所以放在后台线程，请求路径只读上次结果；CLI 不可用时退到 `config.json` 的 `devices` + 系统 ping。
+- `tailscale status` 与 `tailscale ping` 都可能被系统权限拦截（macOS GUI 权限 / Windows 服务会话），所以放在后台线程，请求路径只读上次结果；CLI 不可用时退到 `config.json` 的 `devices` + 系统 ping。
 - 在线判定优先用 `tailscale status` 的 `Online`；另外「5 分钟内发过请求」也算在线——手机走中继时 ICMP 常常打不通，但人明明正在刷新页面。
 - 前端 5 秒轮询一次；退出后台再回来会立即刷新。
 
@@ -39,7 +39,7 @@
    │  src="/remote-dsh"
    ▼
 workbench.py
-   ├─ 读 ~/.dsh/.credentials.yaml 的 browser-session secret
+   ├─ 读 ~/.dsh/.credentials.yaml（Windows 在 %USERPROFILE%\.dsh）的 browser-session secret
    ├─ 为 authority 127.0.0.1:8711 签 v1 cookie（30 天）
    └─ 302 → http://<当前主机>:8711/   + Set-Cookie
                  │
@@ -56,7 +56,7 @@ workbench.py
 DSH 只在回环上监听，并且 cookie 按 Host 签名。Caddy 把 Host 固定成 `127.0.0.1:8711` 后：
 
 1. cookie 的 authority 与 Host 永远一致，DSH 重启换端口也不会掉登录；
-2. 浏览器看到的是 `http://<mac>:8711`，cookie 属于这个地址，iframe 同源；
+2. 浏览器看到的是 `http://<主执行端>:8711`，cookie 属于这个地址，iframe 同源；
 3. DSH 不需要知道 tailnet 的存在。
 
 ## 为什么是这些选择
@@ -77,7 +77,7 @@ Tailscale 客户端会给每个节点收集本机可达的地址（含公网 IPv
 
 - 两端都有公网 IPv6 且防火墙允许回包：UDP 直连，路径里是 `[2408:...]:41641`，时延接近局域网；
 - 只有一端有 IPv6 / 防火墙阻断 / 运营商 CGNAT：退回 DERP 中继，工作台显示 `Relay`；
-- 不需要在路由器上给 Mac 做端口映射，也不需要固定 IPv6 地址。
+- 不需要在路由器上给主执行端做端口映射，也不需要固定 IPv6 地址。
 
 验证方法见 [04-latency.md](04-latency.md)。
 

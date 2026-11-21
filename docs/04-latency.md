@@ -4,7 +4,7 @@
 
 | 数字 | 位置 | 测什么 | 方向 |
 |---|---|---|---|
-| 设备时延 `xxms` | 设备卡每行 | Mac ↔ 接入设备的网络往返 | 从 Mac 发起 |
+| 设备时延 `xxms` | 设备卡每行 | 主执行端 ↔ 接入设备的网络往返 | 从主执行端发起 |
 | DSH 时延 `xxms` | DSH 视图右上角 | 浏览器 ↔ DSH（经 `:8711` 反代） | 从当前浏览器发起 |
 
 ## 设备时延
@@ -23,7 +23,7 @@ tailscale ping -c 2 --timeout 2s <tailnet IP>
 - 结果缓存 5 秒；所有设备并发探测，整体最多等 5 秒；
 - 探测放在后台线程，`/api/status` 只读上次结果，不把网络等待压到页面请求上。
 
-Tailscale CLI 不可用（被 macOS 权限拦截、未安装）时，退回系统 `ping -c 1 -t 2` 的平均往返；这时拿不到直连/中继，页面不显示路径徽标。
+Tailscale CLI 不可用（被系统权限拦截、未安装）时，退回系统 ping：macOS `ping -c 1 -t 2`，Windows `ping -n 1 -w 2000`；这时拿不到直连/中继，页面不显示路径徽标。
 
 ### 为什么用 disco ping
 
@@ -64,16 +64,18 @@ http://<当前主机>:8711/dsh-cache-helper/api/pending
 
 前端在 DSH 视图里每 3 秒 `fetch(url, {mode: "no-cors", cache: "no-store"})`，用 `performance.now()` 量一次完整往返；超过 5000ms 视为失败，显示 `—`。
 
-这个数包含：浏览器调度 + 到 Mac 的网络 + Caddy + DSH 处理。它回答的是「我现在操作 DSH 卡不卡」，不是纯网络 RTT，所以不要和左侧设备时延直接比较。
+这个数包含：浏览器调度 + 到主执行端的网络 + Caddy + DSH 处理。它回答的是「我现在操作 DSH 卡不卡」，不是纯网络 RTT，所以不要和左侧设备时延直接比较。
 
 ## IPv6 直连怎么确认
 
-在 Mac 上：
+在主执行端上：
 
 ```bash
 tailscale netcheck          # 看 IPv6: yes、UDP: true
 tailscale ping -c 2 <peer>  # 看 via 后面是地址还是 DERP
 ```
+
+Windows 的 `tailscale.exe` 在 `C:\Program Files\Tailscale\tailscale.exe`；不在 PATH 时用绝对路径。
 
 | 输出 | 含义 |
 |---|---|

@@ -3,8 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-CONFIG="$ROOT/config.json"
-STATE="$HOME/Library/Application Support/dsh-workbench"
+CONFIG="${DSH_WORKBENCH_CONFIG:-$ROOT/config.json}"
+STATE="${DSH_WORKBENCH_STATE:-$HOME/Library/Application Support/dsh-workbench}"
 AGENTS="$HOME/Library/LaunchAgents"
 LOGS="$HOME/Library/Logs"
 UID_NUM="$(id -u)"
@@ -142,8 +142,8 @@ cat > "$AGENTS/$LABEL_PX.plist" <<PLIST
 	<key>Label</key><string>$LABEL_PX</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/bin/bash</string>
-		<string>$ROOT_X/scripts/dsh-proxy.sh</string>
+		<string>$PY_X</string>
+		<string>$ROOT_X/scripts/dsh-proxy.py</string>
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>

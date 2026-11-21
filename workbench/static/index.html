@@ -157,7 +157,7 @@ function hostCard(d) {
   const h = d.host;
   const state = h.alive ? dot("g") + "运行中" : dot("r") + "未运行";
   const managed = !h.managed ? dot("a") + "手动"
-    : (h.running ? dot("g") + "launchd"
+    : (h.running ? dot("g") + (h.manager || "托管")
     : (h.alive ? dot("a") + "未接管" : dot("a") + "重启中"));
   let metrics = "";
   metrics += row("DSH 界面", state);
@@ -166,7 +166,7 @@ function hostCard(d) {
   metrics += row("会话", `${h.sessions.total} <span style="color:var(--dim)">· 最近 ${ago(h.sessions.lastActivity)}</span>`);
   metrics += row("Tailscale", h.ip ? `${dot("g")}<span class="mono">${esc(h.ip)}</span>` : dot("n") + "未连接");
 
-  return `<article class="card"><h2>Mac DSH</h2><div class="fill">${metrics}</div></article>`;
+  return `<article class="card"><h2>${esc(h.title || "Mac DSH")}</h2><div class="fill">${metrics}</div></article>`;
 }
 
 function deviceCard(d) {

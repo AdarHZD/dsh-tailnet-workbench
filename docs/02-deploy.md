@@ -1,8 +1,10 @@
-# 部署
+# 部署（macOS）
+
+> 这是 macOS 版。Windows 用 [02b-windows.md](02b-windows.md)。
 
 按顺序做，每一步都有完成判据。命令里的 `<...>` 全部替换成你自己的值；不要把这些值提交回仓库。
 
-> 先读 [07-keep-running.md](07-keep-running.md)：Mac 睡眠、注销、关机或 DSH 退出，装完也会断。
+> 先读 [07-keep-running.md](07-keep-running.md)：Mac 睡眠、注销、关机或 DSH 退出，装完也会断。Windows 见 [07b-windows-keep-running.md](07b-windows-keep-running.md)。
 > 需要 `sudo` 或图形界面的步骤（关睡眠、自动登录、DSH launchd）交给机器所有者执行。
 
 ## 0. 会装什么
@@ -116,7 +118,7 @@ cp config.example.json config.json
 
 | 字段 | 默认 | 什么时候改 |
 |---|---|---|
-| `hostName` | `Mac mini` | 设备列表里本机的显示名 |
+| `hostName` | `DSH 主机` | 设备列表里本机的显示名 |
 | `workbench.port` | `8710` | 端口冲突 |
 | `dsh.publicPort` | `8711` | 端口冲突；改了要重跑 `install.sh` |
 | `dsh.launchdLabel` | `""` | DSH 由 launchd 托管时填 label |
@@ -221,6 +223,6 @@ rm -rf "$HOME/Library/Application Support/dsh-workbench"
 
 ## 已知限制
 
-- 只支持 macOS（工作台依赖 `launchctl`、`lsof`、`ifconfig`、`ping -t`）；
+- 本页只覆盖 macOS（工作台依赖 `launchctl`、`lsof`、`ifconfig`、`ping -t`）；Windows 见 [02b-windows.md](02b-windows.md)。
 - DSH cookie 依赖桌面版内部凭据格式，换大版本后先跑 `./scripts/verify.sh`；
 - 工作台没有账号密码，安全性完全依赖 Tailscale ACL。不要把 `:8710` / `:8711` 通过路由器或反向代理暴露到公网。

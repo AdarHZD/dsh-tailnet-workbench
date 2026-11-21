@@ -28,21 +28,32 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 STATIC = HERE / "static"
+IS_WIN = sys.platform.startswith("win")
+IS_MAC = sys.platform == "darwin"
 CONFIG = Path(os.environ.get("DSH_WORKBENCH_CONFIG") or (ROOT / "config.json"))
-STATE = Path(os.environ.get("DSH_WORKBENCH_STATE")
-             or (Path.home() / "Library" / "Application Support" / "dsh-workbench"))
-LOG_DIR = Path.home() / "Library" / "Logs"
+
+
+def _state_dir() -> Path:
+    if IS_WIN:
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / "dsh-workbench"
+    return Path.home() / "Library" / "Application Support" / "dsh-workbench"
+
+
+STATE = Path(os.environ.get("DSH_WORKBENCH_STATE") or _state_dir())
+LOG_DIR = (Path.home() / "Library" / "Logs") if IS_MAC else (STATE / "logs")
 
 DEFAULTS = {
-    "hostName": "Mac mini",
+    "hostName": "Windows" if IS_WIN else "Mac mini",
     "workbench": {"port": 8710, "hosts": []},
     "dsh": {
         "publicPort": 8711,
         "launchdLabel": "",
+        "taskName": "",
         "home": "~/.dsh",
         "credentials": "~/.dsh/.credentials.yaml",
         "processMatch": "DeepSeek",
-        "launchLog": "~/Library/Logs/dsh-launcher.log",
+        "launchLog": "~/Library/Logs/dsh-launcher.log" if IS_MAC else "",
     },
     "devices": [],
     "ignoreDevices": [],
@@ -170,6 +181,8 @@ def tailscale_bin() -> str:
     if found:
         return found
     for path in ("/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+                 r"C:\Program Files\Tailscale\tailscale.exe",
+                 r"C:\Program Files (x86)\Tailscale\tailscale.exe",
                  "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale"):
         if Path(path).exists():
             return path
@@ -195,19 +208,39 @@ def ts_json() -> dict:
         return {}
 
 
+_TS_IP = {"at": 0.0, "ip": ""}
+
+
 def ts_ip() -> str:
-    out = run(["/sbin/ifconfig"], timeout=3)
-    if out:
-        for line in out.stdout.splitlines():
-            m = re.search(r"inet (100\.\d+\.\d+\.\d+)", line)
-            if m:
-                return m.group(1)
+    """Tailscale 地址；30 秒缓存，避免每次轮询都起 CLI。"""
+    if time.time() - _TS_IP["at"] < 30:
+        return _TS_IP["ip"]
+    ip = ""
     binary = tailscale_bin()
     if binary:
         out = run([binary, "ip", "-4"], timeout=3)
         if out and out.returncode == 0 and out.stdout.strip():
-            return out.stdout.strip().splitlines()[0]
-    return ""
+            first = out.stdout.strip().splitlines()[0].strip()
+            if re.match(r"^100\.\d+\.\d+\.\d+$", first):
+                ip = first
+    if not ip and IS_MAC:
+        out = run(["/sbin/ifconfig"], timeout=3)
+        if out:
+            for line in out.stdout.splitlines():
+                m = re.search(r"inet (100\.\d+\.\d+\.\d+)", line)
+                if m:
+                    ip = m.group(1)
+                    break
+    if not ip and IS_WIN:
+        out = run(["ipconfig"], timeout=3)
+        if out:
+            for line in out.stdout.splitlines():
+                m = re.search(r"(100\.\d+\.\d+\.\d+)", line)
+                if m:
+                    ip = m.group(1)
+                    break
+    _TS_IP.update(at=time.time(), ip=ip)
+    return ip
 
 
 def launchd_loaded(label: str) -> bool:
@@ -222,6 +255,17 @@ def launchd_running(label: str) -> bool:
         return False
     out = run(["launchctl", "print", f"gui/{os.getuid()}/{label}"])
     return bool(out and out.returncode == 0 and "state = running" in out.stdout)
+
+
+def scheduled_task_state(name: str) -> str:
+    """Windows 计划任务状态；未配置或不存在时返回空字符串。"""
+    if not name or not IS_WIN:
+        return ""
+    safe = name.replace("'", "''")
+    ps = ("$t=Get-ScheduledTask -TaskName '%s' -ErrorAction SilentlyContinue; "
+          "if($t){$t.State}else{''}" % safe)
+    out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=6)
+    return (out.stdout or "").strip() if out else ""
 
 
 OS_NAME = {
@@ -276,7 +320,8 @@ def _ago(iso: str) -> str:
 def _ping_ok(ip: str) -> bool:
     if not ip:
         return False
-    r = run(["ping", "-c", "1", "-t", "2", ip], timeout=4)
+    cmd = ["ping", "-n", "1", "-w", "2000", ip] if IS_WIN else ["ping", "-c", "1", "-t", "2", ip]
+    r = run(cmd, timeout=5)
     return bool(r and r.returncode == 0)
 
 
@@ -286,7 +331,8 @@ def _ignored_ids() -> set:
 
 def _self_row() -> dict:
     return {
-        "id": "self", "kind": "mac", "name": cfg()["hostName"], "os": "macOS",
+        "id": "self", "kind": "win" if IS_WIN else "mac",
+        "name": cfg()["hostName"], "os": "Windows" if IS_WIN else "macOS",
         "ip": ts_ip(), "online": True, "note": "本体",
     }
 
@@ -434,8 +480,12 @@ def _peer_probe(ip: str) -> dict:
             break
         return res
     # 系统 ping 兜底，与直连/中继无关，只取平均往返。
-    r = run(["ping", "-c", "1", "-t", "2", ip], timeout=5)
+    cmd = ["ping", "-n", "1", "-w", "2000", ip] if IS_WIN else ["ping", "-c", "1", "-t", "2", ip]
+    r = run(cmd, timeout=5)
     text = (r.stdout or "") if r else ""
+    if IS_WIN:
+        m = re.search(r"(?:time|时间)[=<]\s*(\d+)\s*ms", text, re.I)
+        return {"rtt": int(m.group(1))} if m else {"rtt": None}
     m = re.search(r"min/avg/max/stddev = ([\d.]+)/([\d.]+)/", text)
     if not m:
         return {"rtt": None}
@@ -581,27 +631,73 @@ def dsh_http(port: int) -> int:
         return 0
 
 
-def dsh_port() -> int | None:
-    """DSH 每次重启都会换 Web 端口，所以以实际监听端口为准，而不是启动日志。"""
+_DSH_PORT = {"at": 0.0, "port": None}
+DSH_PORT_TTL = 10.0
+
+
+def _windows_listen_ports() -> list:
+    ps = ("$p=@{}; Get-Process | ForEach-Object { $p[[int]$_.Id]=$_.ProcessName }; "
+          "Get-NetTCPConnection -State Listen | "
+          "Where-Object { $_.LocalAddress -in @('127.0.0.1','0.0.0.0','::1') } | "
+          "ForEach-Object { [pscustomobject]@{Port=$_.LocalPort; Proc=$p[[int]$_.OwningProcess]} } | "
+          "ConvertTo-Json -Compress")
+    out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=12)
+    if not out or out.returncode != 0 or not out.stdout.strip():
+        return []
+    try:
+        data = json.loads(out.stdout.strip())
+    except ValueError:
+        return []
+    if isinstance(data, dict):
+        data = [data]
+    match = str(cfg()["dsh"]["processMatch"]).lower()
+    ports = []
+    for row in data:
+        proc = str(row.get("Proc") or "").lower()
+        if match not in proc:
+            continue
+        port = int(row.get("Port") or 0)
+        if port and port not in ports:
+            ports.append(port)
+    return ports
+
+
+def _candidate_ports() -> list:
+    if IS_WIN:
+        return _windows_listen_ports()
     out = run([shutil.which("lsof") or "/usr/sbin/lsof", "-nP", "-iTCP", "-sTCP:LISTEN"])
-    seen = set()
-    if out:
-        match = str(cfg()["dsh"]["processMatch"]).lower()
-        for line in out.stdout.splitlines():
-            if match not in line.lower():
-                continue
-            m = re.search(r"127\.0\.0\.1:(\d+)", line)
-            if not m or m.group(1) in seen:
-                continue
-            seen.add(m.group(1))
-            if dsh_http(int(m.group(1))) in (200, 303, 401, 403):
-                return int(m.group(1))
-    url = dsh_url()
-    if url:
-        m = re.search(r":(\d+)/", url)
+    if not out:
+        return []
+    match = str(cfg()["dsh"]["processMatch"]).lower()
+    ports = []
+    for line in out.stdout.splitlines():
+        if match not in line.lower():
+            continue
+        m = re.search(r"127\.0\.0\.1:(\d+)", line)
         if m:
-            return int(m.group(1))
-    return None
+            port = int(m.group(1))
+            if port not in ports:
+                ports.append(port)
+    return ports
+
+
+def dsh_port(force: bool = False) -> int | None:
+    """DSH 每次重启都会换 Web 端口，所以以实际监听端口为准，而不是启动日志。"""
+    if not force and time.time() - _DSH_PORT["at"] < DSH_PORT_TTL:
+        return _DSH_PORT["port"]
+    port = None
+    for candidate in _candidate_ports():
+        if dsh_http(candidate) in (200, 303, 401, 403):
+            port = candidate
+            break
+    if port is None:
+        url = dsh_url()
+        if url:
+            m = re.search(r":(\d+)/", url)
+            if m:
+                port = int(m.group(1))
+    _DSH_PORT.update(at=time.time(), port=port)
+    return port
 
 
 def dsh_stats(home: str) -> dict:
@@ -689,11 +785,26 @@ def collect(headers=None) -> dict:
     instance = ("%d:%s" % (port, hashlib.sha256(token.encode()).hexdigest()[:10])) if (port and token) else (str(port) if port else "")
     ip = ts_ip()
     label = c["dsh"].get("launchdLabel") or ""
+    task = c["dsh"].get("taskName") or ""
+    manager = ""
+    managed = False
+    running = False
+    if IS_MAC:
+        manager = "launchd" if label else ""
+        managed = launchd_loaded(label)
+        running = launchd_running(label)
+    elif IS_WIN:
+        manager = "计划任务" if task else ""
+        state = scheduled_task_state(task) if task else ""
+        managed = bool(state)
+        running = state.lower() in ("running", "正在运行")
     host = {
+        "title": "Windows DSH" if IS_WIN else "Mac DSH",
         "name": c["hostName"],
         "ip": ip,
-        "managed": launchd_loaded(label),
-        "running": launchd_running(label),
+        "manager": manager,
+        "managed": managed,
+        "running": running,
         "alive": port is not None,
         "dsh": {"instance": instance},
         "sessions": dsh_stats(c["dsh"]["home"]),
@@ -793,6 +904,9 @@ class Server(ThreadingHTTPServer):
 
 
 def main():
+    if "--dsh-port" in sys.argv:
+        print(dsh_port(force=True) or "")
+        return
     if not CONFIG.exists():
         print("缺少配置文件：%s" % CONFIG, flush=True)
         print("复制 config.example.json 为 config.json 后再启动。", flush=True)

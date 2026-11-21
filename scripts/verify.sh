@@ -35,7 +35,11 @@ else
   bad "工作台打不开（看 ~/Library/Logs/dsh-workbench.err.log）"
 fi
 
-# 2. 状态接口：字段齐全，且不返回 token / 内部端口
+# 2. 工作台也不能绑到所有网卡
+WB_LISTEN="$(lsof -nP -iTCP:"$WB_PORT" -sTCP:LISTEN 2>/dev/null)"
+if echo "$WB_LISTEN" | grep -qE '\*:|0\.0\.0\.0:'; then bad "工作台绑定了所有网卡（应只绑回环 + Tailscale）"; fi
+
+# 3. 状态接口：字段齐全，且不返回 token / 内部端口
 if "${CURL[@]}" "http://$HOST:$WB_PORT/api/status" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -44,21 +48,21 @@ assert "token" not in d["host"]["dsh"] and "url" not in d["host"]["dsh"]
 assert "port" not in d["host"]["dsh"]
 '; then ok "状态接口不泄露 token/内部端口"; else bad "状态接口异常或返回了敏感字段"; fi
 
-# 3. 反代在听，且没有绑到所有网卡
+# 4. 反代在听，且没有绑到所有网卡
 LISTEN="$(lsof -nP -iTCP:"$PUB_PORT" -sTCP:LISTEN 2>/dev/null)"
 if echo "$LISTEN" | grep -q LISTEN; then ok "反代监听 :$PUB_PORT"; else bad "反代未监听 :$PUB_PORT"; fi
 if echo "$LISTEN" | grep -qE '\*:|0\.0\.0\.0:'; then bad "反代绑定了所有网卡（应只绑回环 + Tailscale）"; fi
 
-# 4. DSH 本体：进程在听，且 Host 改写后能拿到鉴权页
+# 5. DSH 本体：进程在听，且 Host 改写后能拿到鉴权页
 DSH_PORT="$(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -i "$MATCH" \
             | grep -o '127\.0\.0\.1:[0-9]*' | cut -d: -f2 | sort -u | head -1)"
 if [ -n "$DSH_PORT" ]; then ok "DSH 进程在听"; else warn "没找到 DSH 监听端口（DSH 是否在运行？）"; fi
 
-# 5. 远程入口发 cookie
+# 6. 远程入口发 cookie
 CODE="$("${CURL[@]}" -c "$JAR" -o /dev/null -w '%{http_code}' "http://$HOST:$WB_PORT/remote-dsh")"
 if [ "$CODE" = "302" ]; then ok "/remote-dsh 下发 DSH cookie"; else bad "/remote-dsh 返回 ${CODE}（凭据文件或 DSH 版本不匹配）"; fi
 
-# 6. 带上 cookie 访问反代，应直接进 DSH
+# 7. 带上 cookie 访问反代，应直接进 DSH
 CODE="$("${CURL[@]}" -b "$JAR" -o /dev/null -w '%{http_code}' "http://$HOST:$PUB_PORT/")"
 case "$CODE" in
   200|303) ok "cookie 经反代进入 DSH（${CODE}）" ;;
@@ -66,7 +70,7 @@ case "$CODE" in
   *) bad "反代返回 ${CODE}（Caddy 目标端口没跟上，看 ~/Library/Logs/dsh-proxy.log）" ;;
 esac
 
-# 7. Tailscale：至少一个 peer
+# 8. Tailscale：至少一个 peer
 if command -v tailscale >/dev/null 2>&1 || [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]; then
   TS_BIN="$(command -v tailscale 2>/dev/null || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
   PEERS="$("$TS_BIN" status --json 2>/dev/null | python3 -c 'import json,sys;print(len((json.load(sys.stdin).get("Peer") or {})))' 2>/dev/null || echo 0)"
@@ -75,7 +79,7 @@ else
   warn "没找到 tailscale CLI"
 fi
 
-# 8. 常驻：系统不睡 + DSH 是否交给 launchd
+# 9. 常驻：系统不睡 + DSH 是否交给 launchd
 if command -v pmset >/dev/null 2>&1; then
   SLEEP="$(pmset -g 2>/dev/null | awk '/^ sleep/ {print $2}' | head -1)"
   if [ "${SLEEP:-1}" = "0" ]; then ok "系统不会自动睡眠"; else warn "系统睡眠未关闭（sleep=${SLEEP:-?}），睡眠后远程入口会断"; fi

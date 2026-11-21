@@ -1,5 +1,7 @@
 # 排障
 
+本页命令以 macOS 为例；Windows 的差异集中在文末 [Windows 差异](#windows-差异)。
+
 先按症状定位，再看日志。**同一原因失败两次就停**：记下现象、已执行的命令、日志末尾，交给用户决定，不第三次盲试。
 
 本页命令里的 `"$TS"` 先取一次（macOS 的 CLI 不一定在 PATH）：
@@ -138,13 +140,85 @@ launchctl print "gui/$(id -u)/local.dsh.desktop" 2>/dev/null | grep -E 'state|pi
 - DSH 退出后不回来：检查 DSH 的 label 是否在 `config.json` 的 `dsh.launchdLabel`，以及 `KeepAlive` 是否生效；
 - 不要用 LaunchDaemon 跑 DSH，它需要图形会话。
 
+## Windows 差异
+
+Windows 没有 launchd / `lsof` / `pmset`，对应关系：
+
+| macOS | Windows |
+|---|---|
+| `launchctl print gui/$(id -u)/local.dsh-workbench.workbench` | `Get-ScheduledTask -TaskName "DSH Workbench"` |
+| `launchctl print gui/$(id -u)/local.dsh-workbench.proxy` | `Get-ScheduledTask -TaskName "DSH Proxy"` |
+| `lsof -nP -iTCP:8710 -sTCP:LISTEN` | `Get-NetTCPConnection -State Listen \| Where-Object LocalPort -eq 8710` |
+| `tail -50 ~/Library/Logs/dsh-workbench.err.log` | `Get-Content "$env:LOCALAPPDATA\dsh-workbench\workbench.err.log" -Tail 50` |
+| `tail -50 ~/Library/Logs/dsh-proxy.log` | `Get-Content "$env:LOCALAPPDATA\dsh-workbench\dsh-proxy.log" -Tail 50` |
+| `pmset -g` | `powercfg /query`、`powercfg /change` |
+
+### 任务状态
+
+```powershell
+Get-ScheduledTask -TaskName "DSH Workbench","DSH Proxy" |
+  Select-Object TaskName,State
+Get-ScheduledTask -TaskName "DSH Workbench","DSH Proxy" |
+  Get-ScheduledTaskInfo | Select-Object TaskName,LastRunTime,LastTaskResult
+```
+
+- `State = Ready` 且 `LastTaskResult = 267011`（尚未运行）：当前没有交互登录会话。Windows 的 `AtLogOn` + `Interactive` 任务只在用户登录后跑；锁屏可以，注销/停在登录界面不行。
+- 登录后仍不跑：`Start-ScheduledTask -TaskName "DSH Workbench"` 手动拉起，再看 `LastTaskResult`。
+- 任务里的 Python 路径是绝对路径；换 Python 或移动仓库后重跑 `install.ps1`。
+
+### 日志与 API
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\dsh-workbench\workbench.err.log" -Tail 50
+Get-Content "$env:LOCALAPPDATA\dsh-workbench\dsh-proxy.log" -Tail 50
+Invoke-RestMethod http://127.0.0.1:8710/api/status | ConvertTo-Json -Depth 3
+```
+
+`workbench.err.log` 不存在时，看任务是否用了 `pythonw.exe`（无控制台，错误可能只在事件查看器）；也可临时用 `python.exe` 手动跑一次看栈。
+
+### 端口与防火墙
+
+```powershell
+Get-NetTCPConnection -State Listen |
+  Where-Object { $_.LocalPort -in 8710,8711 } |
+  Select-Object LocalAddress,LocalPort,OwningProcess
+```
+
+- 应只有 `127.0.0.1` 和 `100.x` 的 Tailscale 地址，不能有 `0.0.0.0`；
+- 别的 tailnet 设备打不开：Windows 防火墙可能只允许了专用网络。首次启动 Python/Caddy 时弹出的「允许访问」要勾选；漏掉时用管理员 PowerShell：
+  `New-NetFirewallRule -DisplayName "DSH Workbench" -Direction Inbound -Protocol TCP -LocalPort 8710,8711 -Action Allow -Profile Private`
+  只对 Tailscale 网卡放行更稳妥；不要放行「公用网络」。
+- 端口被占用：改 `config.json` 的两个端口，重跑 `install.ps1`；不要 kill 不认识的进程。
+
+### DSH 识别
+
+```powershell
+Get-Process | Where-Object { $_.ProcessName -like "*DeepSeek*" }
+Get-NetTCPConnection -State Listen | Where-Object LocalPort -gt 0 |
+  Select-Object LocalAddress,LocalPort,OwningProcess
+```
+
+工作台通过 `dsh.processMatch` 匹配进程名（默认 `DeepSeek`），并用 Host 探测确认端口。找不到就把实际进程名前 9 个字符填进 `config.json` 的 `dsh.processMatch`，重跑 `install.ps1`。
+
+### 常见现象
+
+| 现象 | 判断 |
+|---|---|
+| `install.ps1` 说找不到 Python | Microsoft Store 的 `python` 别名不算；装 python.org 版或用 `-PythonPath` 指定 |
+| `install.ps1` 说找不到 Caddy | `winget install --id CaddyServer.Caddy -e`，或 `-CaddyPath` 指定 `caddy.exe` |
+| 任务 `Ready` 不跑 | 没有交互登录；先登录，再 `Start-ScheduledTask` |
+| 工作台显示「手动」 | `dsh.taskName` 没填，或 DSH 计划任务没创建；按 [07b](07b-windows-keep-running.md) 处理 |
+| 另一台设备 401 | 先访问 `:8710/remote-dsh` 拿 cookie；直接开 `:8711` 一定 401 |
+| 另一台设备超时 | Windows 防火墙入站规则；确认 `Get-NetTCPConnection` 绑了 `100.x` |
+| `verify.ps1` 的 JSON 检查失败 | 确认脚本是 UTF-8 BOM 保存；API 响应先落盘再按 UTF-8 读，不要直接管道 `ConvertFrom-Json` |
+
 ## 仍然不行
 
 收集这四样再停手：
 
-1. `./scripts/verify.sh` 的完整输出；
-2. `launchctl print` 两个任务的状态；
-3. `~/Library/Logs/` 下四个日志的最后 30 行；
+1. `./scripts/verify.sh`（macOS）或 `.\scripts\verify.ps1`（Windows）的完整输出；
+2. macOS `launchctl print` 两个任务 / Windows `Get-ScheduledTask` 的状态；
+3. macOS `~/Library/Logs/` / Windows `%LOCALAPPDATA%\dsh-workbench\` 下日志的最后 30 行；
 4. `tailscale status` 与 `tailscale netcheck` 的结果。
 
 贴出来前把真实 IP、tailnet 域名、设备名替换成占位符。

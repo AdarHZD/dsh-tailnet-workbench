@@ -1,4 +1,6 @@
-# 主执行端常开与 DSH 常驻
+# 主执行端常开与 DSH 常驻（macOS）
+
+> Windows 见 [07b-windows-keep-running.md](07b-windows-keep-running.md)。
 
 工作台、反代、DSH 都跑在 **Mac 的图形登录会话**里。下面任何一条不成立，远程入口就会消失：
 
