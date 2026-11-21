@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>DSH 工作台</title>
+<link rel="manifest" href="manifest.webmanifest?v=1">
+<meta name="theme-color" content="#5B8DB8">
+<link rel="icon" href="favicon.ico?v=1" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=1">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png?v=1">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=1">
+<meta name="application-name" content="DSH 工作台">
+<meta name="apple-mobile-web-app-title" content="DSH 工作台">
+<style>
+  :root{
+    color-scheme: light dark;
+    --bg:#f5f5f7; --card:#fff; --line:rgba(0,0,0,.08); --text:#1d1d1f; --dim:#86868b;
+    --accent:#0a84ff; --green:#34c759; --amber:#ff9f0a; --red:#ff453a;
+    --radius:16px; --pad:20px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#000; --card:#1c1c1e; --line:rgba(255,255,255,.1); --text:#f5f5f7; --dim:#98989d;}
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{max-width:100%;overflow-x:hidden}
+  body{
+    margin:0;padding:32px 20px 48px;background:var(--bg);color:var(--text);
+    font:15px/1.5 -apple-system,"SF Pro Text","PingFang SC",sans-serif;
+  }
+  main{width:auto;max-width:1120px;margin:0 auto;min-width:0}
+  #chip{margin-left:auto;font-size:13px;color:var(--dim);white-space:nowrap}
+  body.dsh #chip,body.dsh #fRefresh{display:none}
+  body.dsh .dshrtt{margin-left:auto}
+  .iconbtn{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);
+           background:var(--card);color:var(--dim);display:grid;place-items:center;
+           cursor:pointer;padding:0;margin-left:8px;flex:0 0 auto;transition:.15s}
+  .iconbtn:hover{color:var(--accent);border-color:rgba(127,127,127,.45)}
+  .iconbtn:active{transform:scale(.94)}
+  .iconbtn svg{display:block}
+  @media(max-width:480px){.iconbtn{width:34px;height:34px}}
+  @media(prefers-reduced-motion:no-preference){.iconbtn.spin svg{animation:spin .8s linear infinite}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+  .g{background:var(--green)} .a{background:var(--amber)} .r{background:var(--red)} .n{background:var(--dim)}
+
+  .grid{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+  @media(min-width:760px){.grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.span{grid-column:1/-1}}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;
+        min-width:0;display:flex;flex-direction:column;height:100%}
+  .card h2{font-size:12px;font-weight:600;letter-spacing:.3px;color:var(--dim);margin:0 0 14px}
+
+  .row{display:flex;align-items:baseline;gap:12px;padding:8px 0;min-width:0;flex-wrap:wrap}
+  .row:first-child{padding-top:2px}
+  .k{color:var(--dim);flex:0 0 auto;font-size:13px}
+  .v{margin-left:auto;text-align:right;font-variant-numeric:tabular-nums;min-width:0;
+     word-break:break-word;font-size:14px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+
+  .client{display:flex;align-items:center;gap:12px;padding:8px;margin:0 -8px;border-radius:10px;min-width:0}
+  .avatar{width:34px;height:34px;border-radius:9px;background:rgba(127,127,127,.12);
+          display:grid;place-items:center;font-size:15px;flex:0 0 auto;color:var(--dim)}
+  .avatar svg{display:block}
+  .avatar.win{color:#0078d4} .avatar.mac{color:var(--text)} .avatar.ipad{color:var(--text)}
+  .avatar.phone{color:var(--text)}
+  .who{display:flex;flex-direction:column;line-height:1.35;min-width:0;flex:1 1 auto;overflow:hidden}
+  .who b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .who span{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .state{margin-left:auto;font-size:13px;color:var(--dim);display:flex;align-items:center;flex:0 0 auto}
+  .rtt{font-size:12px;color:var(--dim);margin-right:9px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .rtt.ok{color:var(--green)} .rtt.warn{color:var(--amber)} .rtt.bad{color:var(--red)}
+  .via{font-size:11px;line-height:15px;padding:1px 7px;margin-right:9px;border-radius:999px;
+       color:var(--dim);background:rgba(127,127,127,.10);white-space:nowrap}
+  .via.direct{background:rgba(52,199,89,.16)}
+  .via.relay{background:var(--amber);color:#fff}
+  .dshrtt{font-size:12px;color:var(--dim);margin-right:8px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dshrtt.ok{color:var(--green)} .dshrtt.warn{color:var(--amber)} .dshrtt.bad{color:var(--red)}
+  body:not(.dsh) .dshrtt{display:none}
+
+  .fill{flex:1;min-height:0}
+
+  .tabs{position:sticky;top:0;z-index:35;display:flex;align-items:center;gap:8px;
+        max-width:1120px;margin:0 auto 18px;padding:8px 0;background:var(--bg)}
+  .tab{font:inherit;font-size:13px;padding:6px 14px;border-radius:9px;border:1px solid var(--line);
+       background:var(--card);color:var(--text);cursor:pointer}
+  .tab.on{background:var(--text);border-color:var(--text);color:var(--bg)}
+  #dshRefresh{display:none;margin-left:2px;flex:none}
+  body.dsh #dshRefresh{display:inline-flex;align-items:center;justify-content:center}
+  #view-dsh{position:fixed;left:0;right:0;top:52px;bottom:0;background:var(--card)}
+  #view-dsh[hidden]{display:none}
+  #dshFrame{width:100%;height:100%;border:0;display:block}
+  body.dsh{padding:0;overflow:hidden}
+  body.dsh .tabs{margin:0 auto;padding:8px 16px;background:var(--card);border-bottom:1px solid var(--line);max-width:none}
+
+  footer{margin:22px 4px 0;color:var(--dim);font-size:12px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+
+  @media(max-width:480px){
+    body{padding:20px 14px 40px}
+    .card{padding:16px}
+    .v{font-size:14px}
+  }
+</style>
+</head>
+<body>
+<nav class="tabs" id="tabs">
+  <button class="tab on" data-view="wb" aria-current="page">工作台</button>
+  <button class="tab" data-view="dsh">DSH</button>
+  <span id="chip">加载中…</span>
+  <button class="iconbtn" id="fRefresh" aria-label="刷新">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20 11a8 8 0 1 0-.6 4"/><path d="M20 4.5V11h-6.2"/>
+    </svg>
+  </button>
+  <span class="dshrtt" id="dshRtt">—</span>
+  <button class="iconbtn" id="dshRefresh" type="button" aria-label="刷新 DSH">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20 11a8 8 0 1 0-.6 4"/><path d="M20 4.5V11h-6.2"/>
+    </svg>
+  </button>
+</nav>
+<main id="view-wb">
+  <div class="grid" id="grid"></div>
+  <footer id="foot"></footer>
+</main>
+
+<section id="view-dsh" hidden><iframe id="dshFrame" title="DSH"></iframe></section>
+
+<script>
+const $ = s => document.querySelector(s);
+const ago = t => {
+  if (!t) return "—";
+  const s = Math.max(0, Date.now()/1000 - t);
+  if (s < 60) return "刚刚";
+  if (s < 3600) return Math.floor(s/60) + " 分钟前";
+  if (s < 86400) return Math.floor(s/3600) + " 小时前";
+  return Math.floor(s/86400) + " 天前";
+};
+const dot = c => `<span class="dot ${c}"></span>`;
+const row = (k, v) => `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ICON = {
+  mac: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="4" y="6.5" width="16" height="9.5" rx="2.6"/><path d="M9 20h6"/><circle cx="8.4" cy="11.2" r=".9" fill="currentColor" stroke="none"/></svg>`,
+  win: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3.5" y="3.5" width="7.4" height="7.4" rx="1.4"/><rect x="13.1" y="3.5" width="7.4" height="7.4" rx="1.4"/><rect x="3.5" y="13.1" width="7.4" height="7.4" rx="1.4"/><rect x="13.1" y="13.1" width="7.4" height="7.4" rx="1.4"/></svg>`,
+  ipad: `<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2.6"/><path d="M10 18.4h4"/></svg>`,
+  phone: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 19.2h4"/></svg>`,
+  other: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="11" rx="2"/><path d="M2.5 19h19"/></svg>`
+};
+ICON.ios = ICON.ipad; ICON.android = ICON.phone; ICON.linux = ICON.other;
+
+let UI_AT = 0;
+
+function hostCard(d) {
+  const h = d.host;
+  const state = h.alive ? dot("g") + "运行中" : dot("r") + "未运行";
+  const managed = !h.managed ? dot("a") + "手动"
+    : (h.running ? dot("g") + "launchd"
+    : (h.alive ? dot("a") + "未接管" : dot("a") + "重启中"));
+  let metrics = "";
+  metrics += row("DSH 界面", state);
+  metrics += row("常驻托管", managed);
+  metrics += row("工作区", `${h.workspaces}`);
+  metrics += row("会话", `${h.sessions.total} <span style="color:var(--dim)">· 最近 ${ago(h.sessions.lastActivity)}</span>`);
+  metrics += row("Tailscale", h.ip ? `${dot("g")}<span class="mono">${esc(h.ip)}</span>` : dot("n") + "未连接");
+
+  return `<article class="card"><h2>Mac DSH</h2><div class="fill">${metrics}</div></article>`;
+}
+
+function deviceCard(d) {
+  const rtt = c => {
+    if (c.kind === "mac") return "";
+    if (c.rtt == null) return `<span class="rtt">—</span>`;
+    const cls = c.rtt < 200 ? "ok" : c.rtt < 350 ? "warn" : "bad";
+    return `<span class="rtt ${cls}">${c.rtt}ms</span>`;
+  };
+  const via = c => c.via
+    ? `<span class="via ${c.via}">${c.via === "direct" ? "Direct" : "Relay"}</span>` : "";
+  let list = "";
+  for (const c of d.clients) {
+    const cls = c.online === true ? "g" : c.online === false ? "r" : "n";
+    const sub = [c.os === c.name ? "" : c.os, c.ip].filter(Boolean).join(" · ");
+    list += `<div class="client">
+      <div class="avatar ${c.kind}">${ICON[c.kind] || ICON.other}</div>
+      <div class="who"><b>${esc(c.name)}</b><span class="mono">${esc(sub)}</span></div>
+      <div class="state">${rtt(c)}${via(c)}${dot(cls)}${esc(c.note || "")}</div>
+    </div>`;
+  }
+  return `<article class="card"><h2>设备 · ${d.clients.length}</h2><div class="fill">${list}</div></article>`;
+}
+
+function issueCard(d) {
+  const list = d.issues || [];
+  if (!list.length) return "";
+  const items = list.map(it => {
+    const cls = it.level === "error" ? "r" : "a";
+    return `<div class="row"><span class="k" style="flex:1">${dot(cls)}${esc(it.title)}</span></div>`;
+  }).join("");
+  return `<article class="card span"><h2>诊断 · ${list.length}</h2>${items}</article>`;
+}
+
+function render(d) {
+  if (d.error) { $("#grid").innerHTML = `<article class="card"><div class="row"><span class="k">${dot("r")}${esc(d.error)}</span></div></article>`; return; }
+  if (!UI_AT) UI_AT = d.uiAt || 0;
+  else if (d.uiAt && d.uiAt !== UI_AT && !document.body.classList.contains("dsh")) {
+    location.reload();
+    return;
+  }
+  const n = (d.issues || []).length;
+  $("#chip").innerHTML = n ? `${dot("a")}${n} 项待处理` : `${dot("g")}全部正常`;
+  $("#grid").innerHTML = issueCard(d) + deviceCard(d) + hostCard(d);
+  $("#foot").innerHTML = `<span>更新于 ${new Date(d.now*1000).toTimeString().slice(0,8)}</span>`;
+}
+
+/* ------------------------------------------------------------ DSH */
+const frame = $("#dshFrame");
+let POLL = null;
+let DSH_INST = null;
+let dshNavAt = 0;
+let dshKnownDown = false;
+let dshNavUnknown = false;
+
+function navDsh() {
+  dshNavAt = Date.now();
+  dshNavUnknown = dshKnownDown;
+  frame.src = "remote-dsh?r=" + dshNavAt;
+}
+function noteDsh(data) {
+  const inst = data && data.host && data.host.dsh ? (data.host.dsh.instance || "") : "";
+  if (!inst) { dshKnownDown = true; return; }
+  dshKnownDown = false;
+  if (DSH_INST === inst) return;
+  const firstTime = DSH_INST === null;
+  const changed = !firstTime || dshNavUnknown;
+  DSH_INST = inst;
+  // 实例变了：iframe 里那页停在旧端口/旧 cookie 上，重走一次 /remote-dsh。
+  if (changed && !$("#view-dsh").hidden && Date.now() - dshNavAt > 3000) navDsh();
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && document.body.classList.contains("dsh")) {
+    refresh(true);
+  }
+});
+
+/* DSH 视图看响应耗时，刷得更勤；工作台卡片 5 秒一刷。 */
+function startPoll() {
+  if (POLL) clearInterval(POLL);
+  POLL = setInterval(refresh, document.body.classList.contains("dsh") ? 3000 : 5000);
+}
+function placeFrame() {
+  const r = $("#tabs").getBoundingClientRect();
+  $("#view-dsh").style.top = Math.round(r.bottom) + "px";
+}
+window.addEventListener("resize", () => { if (! $("#view-dsh").hidden) placeFrame(); });
+
+function show(view, push) {
+  const dsh = view === "dsh";
+  $("#view-wb").hidden = dsh;
+  $("#view-dsh").hidden = !dsh;
+  document.body.classList.toggle("dsh", dsh);
+  document.querySelectorAll(".tab[data-view]").forEach(t => {
+    const on = t.dataset.view === view;
+    t.classList.toggle("on", on);
+    if (on) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");
+  });
+  if (dsh && !frame.getAttribute("src")) navDsh();
+  if (dsh) { updateDshRtt(); refresh(); }
+  startPoll();
+  placeFrame();
+  try {
+    if (push) history.pushState(null, "", dsh ? "#dsh" : "#wb");
+    else history.replaceState(null, "", dsh ? "#dsh" : "#wb");
+  } catch (e) {}
+}
+
+let DSH_MS = null;
+let rttRetry = false;
+function updateDshRtt() {
+  const el = $("#dshRtt");
+  if (!el) return;
+  if (DSH_MS == null) { el.className = "dshrtt"; el.textContent = "—"; return; }
+  const cls = DSH_MS < 200 ? "ok" : DSH_MS < 350 ? "warn" : "bad";
+  el.className = "dshrtt " + cls;
+  el.textContent = DSH_MS + "ms";
+}
+
+// 测的是 DSH 自己（与 iframe 同源的小接口），不是工作台接口的耗时。
+async function pingDsh(url) {
+  if (!url) { DSH_MS = null; updateDshRtt(); return; }
+  const t0 = performance.now();
+  try {
+    await fetch(url, {mode: "no-cors", credentials: "include", cache: "no-store"});
+    const ms = Math.round(performance.now() - t0);
+    DSH_MS = ms < 5000 ? ms : null;
+  } catch { DSH_MS = null; }
+  updateDshRtt();
+}
+
+async function refresh(force) {
+  try {
+    const r = await fetch("api/status" + (force ? "?force=1" : ""), {cache: "no-store"});
+    const data = await r.json();
+    noteDsh(data);
+    render(data);
+    if (!rttRetry && (data.clients || []).some(c => c.kind !== "mac" && c.online && c.rtt == null)) {
+      rttRetry = true;
+      setTimeout(() => refresh(), 2200);
+    }
+    if (document.body.classList.contains("dsh")) pingDsh(data.dsh_ping);
+  } catch { $("#chip").textContent = "刷新失败"; }
+}
+
+$("#dshRefresh").addEventListener("click", e => {
+  e.stopPropagation();
+  const b = $("#dshRefresh");
+  if (b.classList.contains("spin")) return;
+  b.classList.add("spin");
+  navDsh();
+  setTimeout(() => b.classList.remove("spin"), 900);
+});
+
+$("#fRefresh").addEventListener("click", async e => {
+  e.stopPropagation();
+  const b = $("#fRefresh");
+  if (b.classList.contains("spin")) return;
+  b.classList.add("spin");
+  await refresh(true);
+  setTimeout(() => b.classList.remove("spin"), 300);
+});
+
+document.addEventListener("click", e => {
+  const t = e.target.closest(".tab[data-view]");
+  if (t) show(t.dataset.view, true);
+});
+window.addEventListener("popstate", () => show(location.hash === "#dsh" ? "dsh" : "wb"));
+
+show(location.hash === "#dsh" ? "dsh" : "wb");
+refresh(); startPoll();
+</script>
+</body>
+</html>

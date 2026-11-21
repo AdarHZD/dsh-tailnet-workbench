@@ -1,0 +1,16 @@
+{
+  "hostName": "Mac mini",
+  "workbench": {
+    "port": 8710
+  },
+  "dsh": {
+    "publicPort": 8711,
+    "launchdLabel": "",
+    "home": "~/.dsh",
+    "credentials": "~/.dsh/.credentials.yaml",
+    "processMatch": "DeepSeek",
+    "launchLog": "~/Library/Logs/dsh-launcher.log"
+  },
+  "devices": [],
+  "ignoreDevices": []
+}

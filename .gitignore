@@ -1,0 +1,8 @@
+# 本机配置与运行时状态，永不入库
+config.json
+*.log
+.DS_Store
+
+# 安装脚本生成的启动器与缓存
+.state/
+bin/caddy
