@@ -12,6 +12,8 @@
 
 ![工作台](docs/images/workbench.png)
 
+> 截图为演示数据，地址尾号已打码。
+
 ## 前提
 
 - DSH 桌面版装在 macOS 上，已经登录、API 可用；
