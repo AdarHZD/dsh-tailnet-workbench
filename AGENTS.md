@@ -1,6 +1,6 @@
 # AGENTS.md
 
-这个仓库要由**另一台机器上的 DSH** 读完后独立部署。目标：在**当前机器**上从零部署属于当前用户的**一套独立工作台和 DSH 远程入口**，不是接入作者的工作台。工作台只读当前机器的 Tailscale 状态，不连接作者的 tailnet、地址或凭据。在不暴露公网、不复制任何私有配置的前提下，达到 README 截图的效果。
+这个仓库要由**另一台机器上的 DSH** 读完后独立部署。目标：在**当前机器**上从零部署属于当前用户的**一套独立工作台和 DSH 远程入口**。工作台只读当前机器的 Tailscale 状态，只使用当前用户自己的 tailnet、地址和凭据。在不暴露公网、不复制任何私有配置的前提下，达到 README 截图的效果。
 
 先读 [README.md](README.md)、部署文档（macOS [docs/02-deploy.md](docs/02-deploy.md)，Windows [docs/02b-windows.md](docs/02b-windows.md)）、常开文档（macOS [docs/07-keep-running.md](docs/07-keep-running.md)，Windows [docs/07b-windows-keep-running.md](docs/07b-windows-keep-running.md)）。安全边界见 [docs/05-security.md](docs/05-security.md)。
 
