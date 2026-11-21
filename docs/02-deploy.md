@@ -90,7 +90,7 @@ caddy version
 ## 5. 配置与安装
 
 ```bash
-git clone https://github.com/<you>/dsh-tailnet-workbench.git
+git clone https://github.com/AdarHZD/dsh-tailnet-workbench.git
 cd dsh-tailnet-workbench
 cp config.example.json config.json
 ```
