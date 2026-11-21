@@ -20,6 +20,7 @@ print("WB_PORT=%d" % int(c["workbench"]["port"]))
 print("PUB_PORT=%d" % int(c["dsh"]["publicPort"]))
 print("MATCH=%s" % shlex.quote(str(c["dsh"].get("processMatch", "DeepSeek"))))
 print("DSH_HOME=%s" % shlex.quote(os.path.expanduser(str(c["dsh"].get("home", "~/.dsh")))))
+print("DSH_LABEL=%s" % shlex.quote(str(c["dsh"].get("launchdLabel", ""))))
 PY
 )" || { echo "FAIL config.json 解析失败"; exit 1; }
 
@@ -72,6 +73,21 @@ if command -v tailscale >/dev/null 2>&1 || [ -x /Applications/Tailscale.app/Cont
   if [ "${PEERS:-0}" -ge 1 ]; then ok "Tailscale 在线，peer $PEERS 台"; else warn "Tailscale 没有 peer，或 CLI 被权限拦截"; fi
 else
   warn "没找到 tailscale CLI"
+fi
+
+# 8. 常驻：系统不睡 + DSH 是否交给 launchd
+if command -v pmset >/dev/null 2>&1; then
+  SLEEP="$(pmset -g 2>/dev/null | awk '/^ sleep/ {print $2}' | head -1)"
+  if [ "${SLEEP:-1}" = "0" ]; then ok "系统不会自动睡眠"; else warn "系统睡眠未关闭（sleep=${SLEEP:-?}），睡眠后远程入口会断"; fi
+fi
+if [ -n "${DSH_LABEL:-}" ]; then
+  if launchctl print "gui/$(id -u)/$DSH_LABEL" 2>/dev/null | grep -q 'state = running'; then
+    ok "DSH 由 launchd 常驻（${DSH_LABEL}）"
+  else
+    bad "DSH 的 launchd 任务未运行（${DSH_LABEL}）"
+  fi
+else
+  warn "未配置 dsh.launchdLabel：DSH 退出/重启后需要手动打开"
 fi
 
 echo

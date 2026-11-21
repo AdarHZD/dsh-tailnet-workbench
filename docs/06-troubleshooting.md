@@ -2,24 +2,36 @@
 
 先按症状定位，再看日志。**同一原因失败两次就停**：记下现象、已执行的命令、日志末尾，交给用户决定，不第三次盲试。
 
+本页命令里的 `"$TS"` 先取一次（macOS 的 CLI 不一定在 PATH）：
+
+```bash
+TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+[ -x "$TS" ] || TS="$(command -v tailscale)"
+```
+
 ## 症状速查
 
 | 现象 | 先查 | 再查 |
 |---|---|---|
 | 工作台打不开 | `launchctl print gui/$(id -u)/local.dsh-workbench.workbench \| grep state` | `tail -30 ~/Library/Logs/dsh-workbench.err.log` |
 | 页面一直「刷新失败」 | `curl -s http://127.0.0.1:8710/api/status` | 工作台进程是否在、端口是否被改 |
-| 设备卡只有本机 | `tailscale status` 是否有 peer | `~/Library/Logs/dsh-workbench.err.log` 里 Tailscale CLI 是否报错 |
-| 某设备时延一直 `—` | `tailscale ping <ip>` 是否通 | 设备是否在线、CLI 是否被权限拦截 |
-| 路径一直是 `Relay` | `tailscale netcheck` 的 IPv6 | 路由器 IPv6 防火墙、运营商是否给公网 IPv6 |
+| 设备卡只有本机 | `"$TS" status` 是否有 peer | `~/Library/Logs/dsh-workbench.err.log` 里 Tailscale CLI 是否报错 |
+| 某设备时延一直 `—` | `"$TS" ping <ip>` 是否通 | 设备是否在线、CLI 是否被权限拦截 |
+| 路径一直是 `Relay` | `"$TS" netcheck` 的 IPv6 | 路由器 IPv6 防火墙、运营商是否给公网 IPv6 |
 | 点 DSH 白屏 / 401 | `curl -si http://<mac>:8710/remote-dsh` 是否 302 + Set-Cookie | `dsh.publicPort` 与 Caddy Host 是否一致 |
 | 点 DSH 502 | `lsof -nP -iTCP -sTCP:LISTEN \| grep -i DeepSeek` | `tail -30 ~/Library/Logs/dsh-proxy.log`、Caddyfile 里的目标端口 |
 | `/remote-dsh` 503 | `ls -l ~/.dsh/.credentials.yaml` | DSH 版本是否改了凭据格式；可回退到启动日志 token |
+| DSH 进程在跑，但工作台显示「未运行」 | `lsof` 的 COMMAND 列是否匹配 `dsh.processMatch` | 改 `config.json` 的 `processMatch` 后重跑 `./install.sh` |
+| 工作区/会话一直是 0 | `config.json` 的 `dsh.home` 是否指向真实 `~/.dsh` | 权限是否可读 |
 | 反代没监听 | `lsof -nP -iTCP:8711 -sTCP:LISTEN` | `CADDY_BIN` 是否正确、Caddy 是否启动失败 |
 | 安装时提示端口占用 | `lsof -nP -iTCP:<port> -sTCP:LISTEN` | 改 `config.json` 的端口，或停掉占用者 |
 | launchd `WARN` 未运行 | `launchctl print` 详情 | 日志里的 Python/Caddy 路径、权限 |
 | DSH 重启后 iframe 卡住 | 工作台是否在轮询 | 等 10 秒；点 DSH 视图右上角 ↻ |
 | 改了 config 没变化 | 是否重跑 `./install.sh` | 工作台会按文件 mtime 重载，但 launchd 环境变量要重装才更新 |
 | 远程设备打不开 `127.0.0.1` 链接 | 是否用了 `127.0.0.1` 地址 | 换成 `http://<mac 的 Tailscale 地址>:8710/` |
+| 睡一会儿/合盖后打不开 | `pmset -g` 的 `sleep` 是否为 0 | 见 [07-keep-running.md](07-keep-running.md) |
+| 重启 Mac 后打不开 | 是否自动登录、Tailscale 是否登录 | `launchctl print` 两个任务；手动登录后重试 |
+| DSH 退出后不回来 | DSH 是否在 launchd 里 | 见 07 第 3 节；或手动打开 DSH |
 
 ## 工作台
 
@@ -36,8 +48,8 @@ curl -s http://127.0.0.1:8710/api/status | python3 -m json.tool | head -40
 ## 设备列表
 
 ```bash
-tailscale status
-tailscale status --json | python3 -c 'import json,sys;d=json.load(sys.stdin);print(len(d.get("Peer") or {}))'
+"$TS" status
+"$TS" status --json | python3 -c 'import json,sys;d=json.load(sys.stdin);print(len(d.get("Peer") or {}))'
 ```
 
 - `tailscale status` 正常但页面没有：看工作台日志里 `tailscale status --json` 是否超时/被拦。CLI 被拦时，在 `config.json` 的 `devices` 里补兜底列表。
@@ -47,7 +59,7 @@ tailscale status --json | python3 -c 'import json,sys;d=json.load(sys.stdin);pri
 ## 时延
 
 ```bash
-tailscale ping -c 2 --timeout 2s <peer>
+"$TS" ping -c 2 --timeout 2s <peer>
 ping -c 1 -t 2 <peer>
 ```
 
@@ -59,8 +71,8 @@ ping -c 1 -t 2 <peer>
 ## 直连 / IPv6
 
 ```bash
-tailscale netcheck
-tailscale ping -c 2 <peer>
+"$TS" netcheck
+"$TS" ping -c 2 <peer>
 ```
 
 - `IPv6: no`：路由器没下发 IPv6，或 Mac 没拿到地址；先修网络。
@@ -112,6 +124,19 @@ tail -50 ~/Library/Logs/dsh-proxy.log
 - 只用 `http://<mac 的 Tailscale 地址>:8710/` 或 MagicDNS 名；
 - `127.0.0.1` 只在这台 Mac 上有效，iPad 上指的是 iPad 自己；
 - 不要在 iPad 上用 `localhost`。
+
+## 常驻
+
+```bash
+pmset -g | grep -E ' sleep| disksleep| womp'
+launchctl print "gui/$(id -u)/local.dsh.desktop" 2>/dev/null | grep -E 'state|pid'
+```
+
+- `sleep` 不是 0：按 [07-keep-running.md](07-keep-running.md) 关睡眠；
+- 工作台/反代在跑，但 Mac 睡醒后打不开：先确认 Tailscale 是否恢复，再看 launchd；
+- 重启后两个任务都不在：用户会话没有自动登录，launchd GUI 任务不会启动；先手动登录；
+- DSH 退出后不回来：检查 DSH 的 label 是否在 `config.json` 的 `dsh.launchdLabel`，以及 `KeepAlive` 是否生效；
+- 不要用 LaunchDaemon 跑 DSH，它需要图形会话。
 
 ## 仍然不行
 

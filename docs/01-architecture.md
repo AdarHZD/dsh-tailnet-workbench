@@ -6,12 +6,14 @@
 
 | 组件 | 位置 | 作用 | 托管 |
 |---|---|---|---|
-| DSH 桌面版 | Mac | 唯一的大脑，所有会话在这里 | 你原有的启动方式；可选 launchd |
+| DSH 桌面版 | Mac | 唯一的大脑，所有会话在这里 | 建议 launchd 常驻（见 [07-keep-running.md](07-keep-running.md)） |
 | 工作台 | Mac | 聚合状态、下发 DSH cookie | launchd `local.dsh-workbench.workbench` |
 | Caddy | Mac | `:8711 → 127.0.0.1:<DSH 端口>`，固定 Host/Origin | 由守护脚本拉起 |
 | `dsh-proxy.sh` | Mac | 每 10 秒跟随 DSH 动态端口 | launchd `local.dsh-workbench.proxy` |
 | Tailscale | 全部设备 | 组网、打洞、直连/中继 | 系统服务 |
 | 接入设备 | iPad / 手机 / 笔记本 | 浏览器打开工作台 | — |
+
+工作台、反代、DSH 都运行在 Mac 的**图形登录会话**里：Mac 睡眠、注销、关机，或 DSH 退出，整条链路就会消失。常开与常驻的做法见 [07-keep-running.md](07-keep-running.md)。
 
 ## 数据流
 

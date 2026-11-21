@@ -2,6 +2,9 @@
 
 按顺序做，每一步都有完成判据。命令里的 `<...>` 全部替换成你自己的值；不要把这些值提交回仓库。
 
+> 先读 [07-keep-running.md](07-keep-running.md)：Mac 睡眠、注销、关机或 DSH 退出，装完也会断。
+> 需要 `sudo` 或图形界面的步骤（关睡眠、自动登录、DSH launchd）交给机器所有者执行。
+
 ## 0. 会装什么
 
 | 位置 | 内容 |
@@ -11,6 +14,7 @@
 | `~/Library/Application Support/dsh-workbench/` | 运行时 Caddyfile、状态 |
 | `~/Library/Logs/dsh-workbench*.log`、`dsh-proxy*.log` | 日志 |
 | 仓库内 `config.json` | 本机配置（已 gitignore） |
+| `~/Library/LaunchAgents/<dsh label>.plist` | 可选：DSH 常驻（见 07） |
 
 ## 1. Tailscale
 
@@ -23,12 +27,16 @@ Mac 和要接入的设备都安装 Tailscale，登录同一个 tailnet。
 
 **完成判据**
 
+macOS 的 Tailscale CLI 不一定在 PATH 里，先取到它：
+
 ```bash
-tailscale status
-tailscale ip -4
+TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+[ -x "$TS" ] || TS="$(command -v tailscale)"
+"$TS" status
+"$TS" ip -4
 ```
 
-能看到 Mac 自己和至少一台 peer；`tailscale ip -4` 返回 `100.` 开头的地址。
+能看到 Mac 自己和至少一台 peer；`ip -4` 返回 `100.` 开头的地址。
 
 ## 2. IPv6 与直连
 
@@ -37,13 +45,15 @@ tailscale ip -4
 在 Mac 上：
 
 ```bash
-tailscale netcheck
+TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+[ -x "$TS" ] || TS="$(command -v tailscale)"
+"$TS" netcheck
 ```
 
 看 `IPv6: yes` 和 `UDP: true`。然后在 Mac 上 ping 一台接入设备：
 
 ```bash
-tailscale ping -c 2 <peer 的 tailnet IP>
+"$TS" ping -c 2 <peer 的 tailnet IP>
 ```
 
 输出形如：
@@ -76,13 +86,20 @@ ls -l ~/.dsh/.credentials.yaml
 
 **完成判据**：DSH 进程在跑、凭据文件可读。`/remote-dsh` 的 cookie 就来自这个文件。
 
-> 可选：如果你自己给 DSH 建过 launchd 任务，把它的 label 填进 `config.json` 的 `dsh.launchdLabel`，工作台会显示「launchd」；不确定就留空，显示「手动」不影响使用。
+> 常驻不是可选项：Mac 睡眠、注销或 DSH 退出，远程入口都会消失。按 [07-keep-running.md](07-keep-running.md) 创建 DSH 的 launchd 任务，把 label 填进 `config.json` 的 `dsh.launchdLabel`；不用 launchd 就接受工作台显示「手动」，并明确重启后需要手动打开 DSH。
 
 ## 4. Caddy
 
 ```bash
 brew install caddy
 caddy version
+```
+
+没有 Homebrew 时，从 [caddyserver.com/download](https://caddyserver.com/download) 下载 macOS 二进制，放到
+`$HOME/Library/Application Support/dsh-workbench/bin/caddy`，`chmod +x`，然后：
+
+```bash
+CADDY_BIN="$HOME/Library/Application Support/dsh-workbench/bin/caddy" ./install.sh
 ```
 
 **完成判据**：`caddy` 在 PATH 里，或你知道它的绝对路径（用 `CADDY_BIN` 传给 `install.sh`）。
@@ -99,10 +116,14 @@ cp config.example.json config.json
 
 | 字段 | 默认 | 什么时候改 |
 |---|---|---|
+| `hostName` | `Mac mini` | 设备列表里本机的显示名 |
 | `workbench.port` | `8710` | 端口冲突 |
 | `dsh.publicPort` | `8711` | 端口冲突；改了要重跑 `install.sh` |
 | `dsh.launchdLabel` | `""` | DSH 由 launchd 托管时填 label |
+| `dsh.processMatch` | `DeepSeek` | `lsof` 里的进程名不是 DeepSeek 时，填实际进程名前 9 个字符 |
+| `dsh.home` / `dsh.credentials` | `~/.dsh` | DSH 数据目录不在默认位置时改 |
 | `devices` | `[]` | 只在 Tailscale CLI 被权限拦截时补兜底列表 |
+| `ignoreDevices` | `[]` | 不想显示的 tailnet 设备名 |
 | `workbench.hosts` | `[]` | 用自定义域名访问工作台时追加 |
 
 安装：
@@ -111,7 +132,7 @@ cp config.example.json config.json
 ./install.sh
 ```
 
-第一次运行只生成 `config.json` 就退出；改完再跑一次。脚本会生成 launchd 任务、启动工作台和反代，并检查两个端口是否被占用。
+如果 `config.json` 不存在，`install.sh` 会先复制模板并退出；改完再跑一次。脚本会生成 launchd 任务、启动工作台和反代，并检查两个端口是否被占用。
 
 **完成判据**：输出两条 `OK local.dsh-workbench.*`。
 
@@ -140,7 +161,7 @@ tail -20 ~/Library/Logs/dsh-workbench.err.log
 ./scripts/verify.sh
 ```
 
-它会检查：工作台 200、状态接口不泄露 token/内部端口、反代监听、DSH 在听、`/remote-dsh` 下发 cookie、带 cookie 进 DSH、Tailscale peer 数。
+它会检查：工作台 200、状态接口不泄露 token/内部端口、反代监听、DSH 在听、`/remote-dsh` 下发 cookie、带 cookie 进 DSH、Tailscale peer 数、系统是否会自动睡眠、DSH 是否在 launchd 里常驻。
 
 **完成判据**：最后一行「验收通过」。
 

@@ -10,6 +10,8 @@
 工作台顶部点「DSH」，直接在同一个页面里进入 Mac 上的 DSH。
 **不开公网端口、不做端口转发、不把任何服务绑到公网 IPv6 地址。**
 
+**主执行端必须常开、保持登录、DSH 常驻**；否则工作台和 DSH 入口都会消失。做法见 [docs/07-keep-running.md](docs/07-keep-running.md)。
+
 ![工作台](docs/images/workbench.png)
 
 > 截图为演示数据，地址尾号已打码。
@@ -19,16 +21,29 @@
 - DSH 桌面版装在 macOS 上，已经登录、API 可用；
 - Mac 和要接入的设备都装了 Tailscale，登录同一个 tailnet；
 - 家庭宽带能拿到公网 IPv6（Tailscale 打洞会优先走 IPv6；拿不到也能退回 DERP 中继，只是慢）；
-- macOS 自带 Python 3.9+，Caddy 用 Homebrew 安装。
+- macOS 自带 Python 3.9+；Caddy 用 Homebrew 安装，没有 Homebrew 时可用 `CADDY_BIN` 指定官方二进制；
+- macOS 的 Tailscale CLI 不一定在 PATH 里；命令不识别时用 `/Applications/Tailscale.app/Contents/MacOS/Tailscale`。
+
+## 主执行端要一直在线
+
+工作台、反代、DSH 都跑在 Mac 的图形登录会话里。**Mac 睡眠、注销、关机，或者 DSH 退出，远程入口就会消失。**
+只跑 `install.sh` 不等于常驻，必须同时做到：
+
+1. 系统不睡（显示器可以睡）；
+2. 保持登录；重启后若要无人值守恢复，需要自动登录；
+3. DSH 用 launchd 常驻（或 DSH 自带的登录启动）；不常驻时工作台会显示「手动」；
+4. Tailscale 随登录启动。
+
+完整命令、验收与取舍见 [docs/07-keep-running.md](docs/07-keep-running.md)。需要 `sudo` 或图形界面的步骤，交给 Mac 所有者执行。
 
 ## 快速开始
 
 ```bash
 git clone https://github.com/AdarHZD/dsh-tailnet-workbench.git
 cd dsh-tailnet-workbench
-brew install caddy          # 已有可跳过
-./install.sh                # 第一次只生成 config.json
+cp config.example.json config.json
 $EDITOR config.json         # 通常只改端口；设备列表留空即可
+brew install caddy          # 已有可跳过
 ./install.sh
 ./scripts/verify.sh
 ```
@@ -43,6 +58,14 @@ http://<Mac 的 Tailscale 地址>:8710/
 
 > `8710`（工作台）和 `8711`（DSH 反代）只是默认值，冲突就改 `config.json` 后重跑 `./install.sh`。
 > 两个端口都只监听回环和 Tailscale 地址，不对局域网、公网开放。
+
+## 部署完成的标志
+
+- `./scripts/verify.sh` 最后一行是「验收通过」；
+- 工作台「Mac DSH」行：DSH 界面「运行中」、常驻托管「launchd」；
+- 设备卡能看到 Mac 与至少一台接入设备，时延、Direct/Relay 正常；
+- 另一台设备打开 `http://<Mac 的 Tailscale 地址>:8710/`，点「DSH」能进，右上角有时延；
+- 可选：重启 Mac 后 60 秒内工作台恢复（没有自动登录时，先手动登录）。
 
 ## 它怎么工作
 
@@ -90,7 +113,8 @@ dsh-tailnet-workbench/
     ├── 03-ui-spec.md
     ├── 04-latency.md
     ├── 05-security.md
-    └── 06-troubleshooting.md
+    ├── 06-troubleshooting.md
+    └── 07-keep-running.md
 ```
 
 **刻意不包含**：文件/存储面板、入口链接面板、共享盘、跨机同步、SSH 隧道、任何账号、密钥、真实 IP、tailnet 名、个人路径。工作台是只读的，没有重启/挂载/删除按钮。
@@ -115,6 +139,7 @@ dsh-tailnet-workbench/
 | [docs/04-latency.md](docs/04-latency.md) | 时延怎么测、阈值怎么定、什么不算时延 |
 | [docs/05-security.md](docs/05-security.md) | 威胁模型、隐私清单、发布前检查 |
 | [docs/06-troubleshooting.md](docs/06-troubleshooting.md) | 打不开 / 401 / 502 / 没有时延 / 走了中继 |
+| [docs/07-keep-running.md](docs/07-keep-running.md) | Mac 不睡、保持登录、DSH 用 launchd 常驻 |
 
 ## 已验证范围
 
@@ -123,7 +148,8 @@ dsh-tailnet-workbench/
 - `/remote-dsh` 302 + cookie → 反代 200 的端到端链路；
 - 工作台在 820×1130 与 1180×820 两档视口渲染。
 
-未做破坏性实测：DSH 重启换端口后的自动跟随。守护逻辑是 10 秒轮询 + 端口变化重写 Caddyfile，与源部署同源；
+未做破坏性实测：DSH 重启换端口后的自动跟随；Mac 重启后的无人值守恢复（依赖自动登录，见 [docs/07-keep-running.md](docs/07-keep-running.md)）。
+端口跟随逻辑是 10 秒轮询 + 端口变化重写 Caddyfile，与源部署同源；
 需要验证时，在 DSH 重启后看 `~/Library/Logs/dsh-proxy.log` 是否出现新的 `DSH :<port>` 行。
 
 DSH 的 cookie 格式是桌面版内部实现。若你的 DSH 版本改了 `~/.dsh/.credentials.yaml` 结构，`/remote-dsh` 会返回 503；
